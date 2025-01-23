@@ -133,7 +133,28 @@ async function run() {
       res.send(result);
     });
 
+    //* reviews api
 
+    // create
+    app.post("/reviews", async (req, res) => {
+      const newReview = req.body;
+      const mealId = req.body.mealId;
+      const reviewInsert = await reviewCollection.insertOne(newReview);
+      const reviewCount = await mealCollection.updateOne(
+        { _id: new ObjectId(mealId) },
+        { $inc: { review_count: 1 } }
+      );
+      const result = {reviewInsert, reviewCount}
+      res.send(result);
+    });
+
+    // get reviews for one meal
+    app.get("/reviews/:id", async (req, res) => {
+      const { id } = req.params;
+      const query = { mealId: id };
+      const result = await reviewCollection.find(query).toArray();
+      res.send(result);
+    });
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
