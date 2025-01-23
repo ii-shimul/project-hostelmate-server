@@ -72,7 +72,10 @@ async function run() {
         .send("Cookie is cleared");
     });
 
-    const mealCollection = client.db("mealsDB").collection("meals");
+    const mealCollection = client.db("HostelMateDB").collection("meals");
+    const reviewCollection = client.db("HostelMateDB").collection("reviews");
+
+    //* meals api
 
     // create
     app.post("/meals", async (req, res) => {
@@ -81,8 +84,22 @@ async function run() {
       res.send(result);
     });
 
-    // get all
+    // get all or get limited meals
     app.get("/meals", async (req, res) => {
+      if (req.query.page) {
+        const page = req.query.page;
+        const limit = parseInt(req.query.limit);
+        const skip = (parseInt(page) - 1) * limit;
+        const meals = await mealCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalMeals = await mealCollection.countDocuments();
+        hasMore = skip + meals.length < totalMeals;
+        res.send({ meals, hasMore });
+        return;
+      }
       const result = await mealCollection.find().toArray();
       res.send(result);
     });
@@ -115,6 +132,8 @@ async function run() {
       const result = await mealCollection.updateOne(query, updateDoc);
       res.send(result);
     });
+
+
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
