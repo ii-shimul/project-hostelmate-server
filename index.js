@@ -133,6 +133,16 @@ async function run() {
       res.send(result);
     });
 
+    //* like button api
+    app.put("/likes/:id", async (req, res) => {
+      const {id} = req.params;
+      const result = await mealCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $inc: { likes: 1 } }
+      );
+      res.send(result);
+    });
+
     //* reviews api
 
     // create
@@ -144,7 +154,7 @@ async function run() {
         { _id: new ObjectId(mealId) },
         { $inc: { review_count: 1 } }
       );
-      const result = {reviewInsert, reviewCount}
+      const result = { reviewInsert, reviewCount };
       res.send(result);
     });
 
