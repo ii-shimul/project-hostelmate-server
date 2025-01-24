@@ -74,8 +74,11 @@ async function run() {
 
     const mealCollection = client.db("HostelMateDB").collection("meals");
     const reviewCollection = client.db("HostelMateDB").collection("reviews");
+    const requestedMealsCollection = client
+      .db("HostelMateDB")
+      .collection("requestedMeals");
 
-    //* meals api
+    //! meals api
 
     // create
     app.post("/meals", async (req, res) => {
@@ -133,9 +136,9 @@ async function run() {
       res.send(result);
     });
 
-    //* like button api
+    //! like button api
     app.put("/likes/:id", async (req, res) => {
-      const {id} = req.params;
+      const { id } = req.params;
       const result = await mealCollection.updateOne(
         { _id: new ObjectId(id) },
         { $inc: { likes: 1 } }
@@ -143,7 +146,7 @@ async function run() {
       res.send(result);
     });
 
-    //* reviews api
+    //! reviews api
 
     // create
     app.post("/reviews", async (req, res) => {
@@ -166,6 +169,24 @@ async function run() {
       res.send(result);
     });
 
+    //! requestedMeals api
+
+    app.post("/requestedMeals", async (req, res) => {
+      const newRequest = req.body;
+      const result = await requestedMealsCollection.insertOne(newRequest);
+      res.send(result);
+    });
+
+    app.get("/requestedMeals", async (req, res) => {
+      const { userEmail, mealId } = req.query;
+      const query = {
+        "requester.email": userEmail,
+        "requestedMeal.id": mealId,
+      };
+      const result = await requestedMealsCollection.findOne(query);
+      res.send(result);
+    });
+  
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
