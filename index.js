@@ -73,10 +73,34 @@ async function run() {
     });
 
     const mealCollection = client.db("HostelMateDB").collection("meals");
+    const userCollection = client.db("HostelMateDB").collection("users");
     const reviewCollection = client.db("HostelMateDB").collection("reviews");
     const requestedMealsCollection = client
       .db("HostelMateDB")
       .collection("requestedMeals");
+
+    //! users api
+
+    // create
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const isNew = await userCollection.findOne({ email: user.email });
+      if (!isNew) {
+        const result = await userCollection.insertOne(user);
+        console.log(result);
+        res.send(result);
+      } else {
+        res.send({ message: "User already exists!", insertedId: null });
+      }
+    });
+
+    // get one
+    app.get("/users/:email", async (req, res) => {
+      const { email } = req.params;
+      const query = { email: email };
+      const result = await userCollection.findOne(query);
+      res.send(result);
+    });
 
     //! meals api
 
@@ -186,7 +210,14 @@ async function run() {
       const result = await requestedMealsCollection.findOne(query);
       res.send(result);
     });
-  
+
+    // get meals requested by a user
+    app.get("/requestedMeals/:email", async (req, res) => {
+      const {email} = req.params
+      const result = await requestedMealsCollection.find({"requester.email": email}).toArray();
+      res.send(result)
+    })
+
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
