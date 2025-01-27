@@ -4,6 +4,7 @@ const cors = require("cors");
 const app = express();
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 // middlewares
@@ -26,7 +27,7 @@ const verifyToken = (req, res, next) => {
     return res.status(401).send("Unauthorized access");
   }
 
-  jwt.verify(token, process.env.SECRET_KEY, (err, decoded) => {
+  jwt.verify(token, process.env.ACCESS_SECRET_KEY, (err, decoded) => {
     if (err) {
       return res.status(401).send("Unauthorized access");
     }
@@ -50,7 +51,7 @@ async function run() {
   try {
     app.post("/jwt", (req, res) => {
       const user = req.body;
-      const token = jwt.sign(user, process.env.SECRET_KEY, {
+      const token = jwt.sign(user, process.env.ACCESS_SECRET_KEY, {
         expiresIn: "1d",
       });
       res
@@ -87,7 +88,6 @@ async function run() {
       const isNew = await userCollection.findOne({ email: user.email });
       if (!isNew) {
         const result = await userCollection.insertOne(user);
-        console.log(result);
         res.send(result);
       } else {
         res.send({ message: "User already exists!", insertedId: null });
@@ -193,6 +193,15 @@ async function run() {
       res.send(result);
     });
 
+    // get reviews of one user
+    app.get("/student_reviews/:email", async (req, res) => {
+      const { email } = req.params;
+      const result = await reviewCollection
+        .find({ "reviewer.email": email })
+        .toArray();
+      res.send(result);
+    });
+
     //! requestedMeals api
 
     app.post("/requestedMeals", async (req, res) => {
@@ -211,12 +220,36 @@ async function run() {
       res.send(result);
     });
 
+    app.delete("/requestedMeals/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await requestedMealsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
     // get meals requested by a user
     app.get("/requestedMeals/:email", async (req, res) => {
-      const {email} = req.params
-      const result = await requestedMealsCollection.find({"requester.email": email}).toArray();
-      res.send(result)
-    })
+      const { email } = req.params;
+      const result = await requestedMealsCollection
+        .find({ "requester.email": email })
+        .toArray();
+      res.send(result);
+    });
+
+    // ! payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price) * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "bdt",
+        payment_method_types: ["card"],
+      });
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      })
+    });
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
