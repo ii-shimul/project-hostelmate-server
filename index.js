@@ -54,13 +54,7 @@ async function run() {
       const token = jwt.sign(user, process.env.ACCESS_SECRET_KEY, {
         expiresIn: "1d",
       });
-      res
-        .cookie("token", token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-        })
-        .send("Cookie is set");
+      res.send({ token });
     });
 
     app.post("/logout", (req, res) => {
@@ -76,9 +70,45 @@ async function run() {
     const mealCollection = client.db("HostelMateDB").collection("meals");
     const userCollection = client.db("HostelMateDB").collection("users");
     const reviewCollection = client.db("HostelMateDB").collection("reviews");
+    const paymentCollection = client.db("HostelMateDB").collection("payments");
+    const upcomingMealCollection = client
+      .db("HostelMateDB")
+      .collection("upcomingMeals");
     const requestedMealsCollection = client
       .db("HostelMateDB")
       .collection("requestedMeals");
+
+    //! upcoming meals api
+
+    // get all or get limited upcoming meals
+    app.get("/upcoming-meals", async (req, res) => {
+      if (req.query.page) {
+        const page = req.query.page;
+        const limit = parseInt(req.query.limit);
+        const skip = (parseInt(page) - 1) * limit;
+        const meals = await upcomingMealCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalMeals = await upcomingMealCollection.countDocuments();
+        hasMore = skip + meals.length < totalMeals;
+        res.send({ meals, hasMore });
+        return;
+      }
+      const result = await upcomingMealCollection.find().toArray();
+      res.send(result);
+    });
+
+    // like button api
+    app.patch("/upcoming-likes/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await upcomingMealCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $inc: { likes: 1 } }
+      );
+      res.send(result);
+    });
 
     //! users api
 
@@ -92,6 +122,22 @@ async function run() {
       } else {
         res.send({ message: "User already exists!", insertedId: null });
       }
+    });
+
+    // get all
+    app.get("/users", async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    // make admin
+    app.patch("/user/admin", async (req, res) => {
+      const { email } = req.body;
+      const result = await userCollection.updateOne(
+        { email: email },
+        { $set: { role: "admin" } }
+      );
+      res.send(result);
     });
 
     // get one
@@ -160,7 +206,17 @@ async function run() {
       res.send(result);
     });
 
-    //! like button api
+    // count the total number of meals
+    app.get("/meals-count", async (req, res) => {
+      const { email } = req.body;
+      const result = await mealCollection.countDocuments({
+        "distributor.email": email,
+      });
+      console.log(result);
+      res.send({ count: result });
+    });
+
+    // like button api
     app.put("/likes/:id", async (req, res) => {
       const { id } = req.params;
       const result = await mealCollection.updateOne(
@@ -182,6 +238,12 @@ async function run() {
         { $inc: { review_count: 1 } }
       );
       const result = { reviewInsert, reviewCount };
+      res.send(result);
+    });
+
+    // get all reviews
+    app.get("/reviews", async (req, res) => {
+      const result = await reviewCollection.find().toArray();
       res.send(result);
     });
 
@@ -212,12 +274,17 @@ async function run() {
 
     app.get("/requestedMeals", async (req, res) => {
       const { userEmail, mealId } = req.query;
-      const query = {
-        "requester.email": userEmail,
-        "requestedMeal.id": mealId,
-      };
-      const result = await requestedMealsCollection.findOne(query);
-      res.send(result);
+      if (userEmail) {
+        const query = {
+          "requester.email": userEmail,
+          "requestedMeal.id": mealId,
+        };
+        const result = await requestedMealsCollection.findOne(query);
+        res.send(result);
+      } else {
+        const result = await requestedMealsCollection.find().toArray();
+        res.send(result);
+      }
     });
 
     app.delete("/requestedMeals/:id", async (req, res) => {
@@ -225,6 +292,15 @@ async function run() {
       const result = await requestedMealsCollection.deleteOne({
         _id: new ObjectId(id),
       });
+      res.send(result);
+    });
+
+    app.patch("/requestedMeals/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await requestedMealsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "Delivered" } }
+      );
       res.send(result);
     });
 
@@ -237,7 +313,7 @@ async function run() {
       res.send(result);
     });
 
-    // ! payment intent
+    // ! payments api
     app.post("/create-payment-intent", async (req, res) => {
       const { price } = req.body;
       const amount = parseInt(price) * 100;
@@ -248,7 +324,29 @@ async function run() {
       });
       res.send({
         clientSecret: paymentIntent.client_secret,
-      })
+      });
+    });
+
+    // post a payment
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const { membership, userEmail } = payment;
+      const result = await paymentCollection.insertOne(payment);
+      // change the badge of the user
+      const update = await userCollection.updateOne(
+        { email: userEmail },
+        { $set: { badge: membership } }
+      );
+      res.send({ result, update });
+    });
+
+    // get payment history for one user
+    app.get("/payments/:email", async (req, res) => {
+      const { email } = req.params;
+      const payments = await paymentCollection
+        .find({ userEmail: email })
+        .toArray();
+      res.send(payments);
     });
 
     console.log(
