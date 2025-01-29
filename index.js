@@ -100,6 +100,31 @@ async function run() {
       res.send(result);
     });
 
+    // sorted
+    app.get("/upcoming-meals/sort", async (req, res) => {
+      const result = await upcomingMealCollection
+        .find()
+        .sort({ likes: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    app.patch("/upcoming-meals/publish/:id", async (req, res) => {
+      const { id } = req.params;
+      const meal = await upcomingMealCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      if (!meal) {
+        return res.status(404).json({ error: "Meal not found" });
+      }
+      await mealCollection.insertOne(meal);
+
+      const result = await upcomingMealCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
     // like button api
     app.patch("/upcoming-likes/:id", async (req, res) => {
       const { id } = req.params;
@@ -146,6 +171,23 @@ async function run() {
       const query = { email: email };
       const result = await userCollection.findOne(query);
       res.send(result);
+    });
+
+    // search
+    app.post("/search-users", async (req, res) => {
+      const { searchValue } = req.body;
+      const results = await userCollection
+        .find({
+          $or: [
+            { name: { $regex: searchValue, $options: "i" } },
+            { email: { $regex: searchValue, $options: "i" } },
+            { role: { $regex: searchValue, $options: "i" } },
+            { badge: { $regex: searchValue, $options: "i" } },
+          ],
+        })
+        .toArray();
+
+      res.send({ results });
     });
 
     //! meals api
@@ -226,6 +268,61 @@ async function run() {
       res.send(result);
     });
 
+    // search meals
+    app.post("/search-meals", async (req, res) => {
+      const { searchValue } = req.body;
+      const results = await mealCollection
+        .find({
+          $or: [
+            { title: { $regex: searchValue, $options: "i" } },
+            { description: { $regex: searchValue, $options: "i" } },
+            { category: { $regex: searchValue, $options: "i" } },
+          ],
+        })
+        .toArray();
+
+      res.send({ results });
+    });
+
+    // filter
+    app.post("/filter-meals", async (req, res) => {
+      const { category, minPrice, maxPrice } = req.body;
+      console.log(req.body);
+
+      const filter = {};
+
+      if (category) {
+        filter.category = category;
+      }
+
+      if (minPrice || maxPrice) {
+        filter.price = {};
+        if (minPrice) filter.price.$gte = parseFloat(minPrice);
+        if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
+      }
+
+      const meals = await mealCollection.find(filter).toArray();
+      res.send(meals);
+    });
+
+    // sort meals
+    app.post("/meals/sort", async (req, res) => {
+      const { sort } = req.body;
+      if (sort) {
+        const result = await mealCollection
+          .find()
+          .sort({ likes: -1 })
+          .toArray();
+        res.send(result);
+      } else {
+        const result = await mealCollection
+          .find()
+          .sort({ reviews_count: -1 })
+          .toArray();
+        res.send(result);
+      }
+    });
+
     //! reviews api
 
     // create
@@ -262,6 +359,20 @@ async function run() {
         .find({ "reviewer.email": email })
         .toArray();
       res.send(result);
+    });
+
+    app.post("/search-review", async (req, res) => {
+      const { searchValue } = req.body;
+      const results = await reviewCollection
+        .find({
+          $or: [
+            { "reviewer.name": { $regex: searchValue, $options: "i" } },
+            { "reviewer.email": { $regex: searchValue, $options: "i" } },
+          ],
+        })
+        .toArray();
+
+      res.send(results);
     });
 
     //! requestedMeals api
