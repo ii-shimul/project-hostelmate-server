@@ -126,31 +126,19 @@ async function run() {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
-
-        if (page < 1 || limit < 1) {
-          return res
-            .status(400)
-            .send({ message: "Page and limit must be positive integers." });
-        }
-
         const skip = (page - 1) * limit;
-
         const meals = await upcomingMealCollection
           .find()
+          .sort({ likes: -1 })
           .skip(skip)
           .limit(limit)
           .toArray();
-
         const totalMeals = await upcomingMealCollection.countDocuments();
-
-        const hasMore = skip + meals.length < totalMeals;
-
         res.status(200).send({
           meals,
           totalMeals,
           currentPage: page,
           totalPages: Math.ceil(totalMeals / limit),
-          hasMore,
         });
       } catch (error) {
         console.error("Error while paginating meals:", error.message);
@@ -158,15 +146,6 @@ async function run() {
           .status(500)
           .send({ message: "An error occurred while fetching meals." });
       }
-    });
-
-    // sorted
-    app.get("/upcoming-meals/sort", async (req, res) => {
-      const result = await upcomingMealCollection
-        .find()
-        .sort({ likes: -1 })
-        .toArray();
-      res.send(result);
     });
 
     app.patch("/upcoming-meals/publish/:id", verifyToken, async (req, res) => {
@@ -211,8 +190,27 @@ async function run() {
 
     // get all
     app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const meals = await userCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalUsers = await userCollection.countDocuments();
+        res.send({
+          meals: meals,
+          currentPage: page,
+          totalPages: Math.ceil(totalUsers / limit),
+        });
+      } catch (error) {
+        console.error("Error while fetching reviews:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching reviews." });
+      }
     });
 
     // make admin
@@ -293,6 +291,33 @@ async function run() {
       }
       const result = await mealCollection.find().toArray();
       res.send(result);
+    });
+
+    app.get("/meals/paginate", async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const reviews = await mealCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalReviews = await mealCollection.countDocuments();
+
+        const hasMore = skip + reviews.length < totalReviews;
+        res.send({
+          reviews,
+          currentPage: page,
+          totalPages: Math.ceil(totalReviews / limit),
+        });
+      } catch (error) {
+        console.error("Error while fetching reviews:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching reviews." });
+      }
     });
 
     // get one
@@ -422,9 +447,7 @@ async function run() {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
-
         const skip = (page - 1) * limit;
-
         const reviews = await reviewCollection
           .find()
           .skip(skip)
@@ -433,14 +456,10 @@ async function run() {
 
         const totalReviews = await reviewCollection.countDocuments();
 
-        const hasMore = skip + reviews.length < totalReviews;
-
         res.send({
           reviews,
-          totalReviews,
           currentPage: page,
           totalPages: Math.ceil(totalReviews / limit),
-          hasMore,
         });
       } catch (error) {
         console.error("Error while fetching reviews:", error.message);
@@ -460,11 +479,32 @@ async function run() {
 
     // get reviews of one user
     app.get("/student_reviews/:email", verifyToken, async (req, res) => {
-      const { email } = req.params;
-      const result = await reviewCollection
-        .find({ "reviewer.email": email })
-        .toArray();
-      res.send(result);
+      try {
+        const { email } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const reviews = await reviewCollection
+          .find({ "reviewer.email": email })
+          .sort({ likes: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalReviews = await reviewCollection.countDocuments({
+          "reviewer.email": email,
+        });
+        res.status(200).send({
+          reviews,
+          totalReviews,
+          currentPage: page,
+          totalPages: Math.ceil(totalReviews / limit),
+        });
+      } catch (error) {
+        console.error("Error while paginating meals:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching meals." });
+      }
     });
 
     app.post("/search-review", verifyToken, async (req, res) => {
@@ -492,6 +532,30 @@ async function run() {
     app.get("/requestedMeals", verifyToken, async (req, res) => {
       const result = await requestedMealsCollection.find().toArray();
       res.send(result);
+    });
+    app.get("/requestedMeals/paginate", verifyToken, async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const meals = await requestedMealsCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalMeals = await requestedMealsCollection.countDocuments();
+        res.status(200).send({
+          meals,
+          totalMeals,
+          currentPage: page,
+          totalPages: Math.ceil(totalMeals / limit),
+        });
+      } catch (error) {
+        console.error("Error while paginating meals:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching meals." });
+      }
     });
 
     app.delete("/requestedMeals/:id", verifyToken, async (req, res) => {
@@ -529,11 +593,29 @@ async function run() {
 
     // get meals requested by a user
     app.get("/requestedMeals/:email", verifyToken, async (req, res) => {
-      const { email } = req.params;
-      const result = await requestedMealsCollection
-        .find({ "requester.email": email })
-        .toArray();
-      res.send(result);
+      try {
+        const { email } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const meals = await requestedMealsCollection
+          .find({ "requester.email": email })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalMeals = await requestedMealsCollection.countDocuments();
+        res.status(200).send({
+          meals,
+          totalPayments: totalMeals,
+          currentPage: page,
+          totalPages: Math.ceil(totalMeals / limit),
+        });
+      } catch (error) {
+        console.error("Error while paginating meals:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching meals." });
+      }
     });
 
     // ! payments api
@@ -565,12 +647,31 @@ async function run() {
 
     // get payment history for one user
     app.get("/payments/:email", verifyToken, async (req, res) => {
-      const { email } = req.params;
-      const payments = await paymentCollection
-        .find({ userEmail: email })
-        .toArray();
-      res.send(payments);
+      try {
+        const { email } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const payments = await paymentCollection
+          .find({ userEmail: email })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalPayments = await paymentCollection.countDocuments();
+        res.status(200).send({
+          payments,
+          totalPayments,
+          currentPage: page,
+          totalPages: Math.ceil(totalPayments / limit),
+        });
+      } catch (error) {
+        console.error("Error while paginating meals:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching meals." });
+      }
     });
+
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
