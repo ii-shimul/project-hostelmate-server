@@ -21,20 +21,6 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-const verifyToken = (req, res, next) => {
-  const token = req.cookies?.token;
-  if (!token) {
-    return res.status(401).send("Unauthorized access");
-  }
-
-  jwt.verify(token, process.env.ACCESS_SECRET_KEY, (err, decoded) => {
-    if (err) {
-      return res.status(401).send("Unauthorized access");
-    }
-    next();
-  });
-};
-
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.db_user}:${process.env.user_pass}@cluster0.dbupn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -49,6 +35,18 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
+    const mealCollection = client.db("HostelMateDB").collection("meals");
+    const userCollection = client.db("HostelMateDB").collection("users");
+    const reviewCollection = client.db("HostelMateDB").collection("reviews");
+    const paymentCollection = client.db("HostelMateDB").collection("payments");
+    const upcomingMealCollection = client
+      .db("HostelMateDB")
+      .collection("upcomingMeals");
+    const requestedMealsCollection = client
+      .db("HostelMateDB")
+      .collection("requestedMeals");
+
+    // jwt
     app.post("/jwt", (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_SECRET_KEY, {
@@ -67,18 +65,42 @@ async function run() {
         .send("Cookie is cleared");
     });
 
-    const mealCollection = client.db("HostelMateDB").collection("meals");
-    const userCollection = client.db("HostelMateDB").collection("users");
-    const reviewCollection = client.db("HostelMateDB").collection("reviews");
-    const paymentCollection = client.db("HostelMateDB").collection("payments");
-    const upcomingMealCollection = client
-      .db("HostelMateDB")
-      .collection("upcomingMeals");
-    const requestedMealsCollection = client
-      .db("HostelMateDB")
-      .collection("requestedMeals");
+    //! middlewares
+    const verifyToken = (req, res, next) => {
+      if (!req.headers.authorization) {
+        return res.status(401).send("Unauthorized access");
+      }
+
+      const token = req.headers.authorization.split(" ")[1];
+
+      jwt.verify(token, process.env.ACCESS_SECRET_KEY, (err, decoded) => {
+        if (err) {
+          return res.status(401).send("Unauthorized access");
+        }
+        req.decoded = decoded;
+        next();
+      });
+    };
+
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     //! upcoming meals api
+
+    // create
+    app.post("/upcoming-meals", verifyToken, verifyAdmin, async (req, res) => {
+      const newMeal = req.body;
+      const result = await upcomingMealCollection.insertOne(newMeal);
+      res.send(result);
+    });
 
     // get all or get limited upcoming meals
     app.get("/upcoming-meals", async (req, res) => {
@@ -100,6 +122,44 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/upcoming-meals/paginate", async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        if (page < 1 || limit < 1) {
+          return res
+            .status(400)
+            .send({ message: "Page and limit must be positive integers." });
+        }
+
+        const skip = (page - 1) * limit;
+
+        const meals = await upcomingMealCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalMeals = await upcomingMealCollection.countDocuments();
+
+        const hasMore = skip + meals.length < totalMeals;
+
+        res.status(200).send({
+          meals,
+          totalMeals,
+          currentPage: page,
+          totalPages: Math.ceil(totalMeals / limit),
+          hasMore,
+        });
+      } catch (error) {
+        console.error("Error while paginating meals:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching meals." });
+      }
+    });
+
     // sorted
     app.get("/upcoming-meals/sort", async (req, res) => {
       const result = await upcomingMealCollection
@@ -109,7 +169,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/upcoming-meals/publish/:id", async (req, res) => {
+    app.patch("/upcoming-meals/publish/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const meal = await upcomingMealCollection.findOne({
         _id: new ObjectId(id),
@@ -126,7 +186,7 @@ async function run() {
     });
 
     // like button api
-    app.patch("/upcoming-likes/:id", async (req, res) => {
+    app.patch("/upcoming-likes/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const result = await upcomingMealCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -150,13 +210,13 @@ async function run() {
     });
 
     // get all
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
 
     // make admin
-    app.patch("/user/admin", async (req, res) => {
+    app.patch("/user/admin", verifyToken, verifyAdmin, async (req, res) => {
       const { email } = req.body;
       const result = await userCollection.updateOne(
         { email: email },
@@ -166,7 +226,7 @@ async function run() {
     });
 
     // get one
-    app.get("/users/:email", async (req, res) => {
+    app.get("/users/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
       const query = { email: email };
       const result = await userCollection.findOne(query);
@@ -174,7 +234,7 @@ async function run() {
     });
 
     // search
-    app.post("/search-users", async (req, res) => {
+    app.post("/search-users", verifyToken, async (req, res) => {
       const { searchValue } = req.body;
       const results = await userCollection
         .find({
@@ -190,10 +250,26 @@ async function run() {
       res.send({ results });
     });
 
+    // check admin
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === "admin";
+      }
+      res.send({ admin });
+    });
+
     //! meals api
 
     // create
-    app.post("/meals", async (req, res) => {
+    app.post("/meals", verifyToken, verifyAdmin, async (req, res) => {
       const newMeal = req.body;
       const result = await mealCollection.insertOne(newMeal);
       res.send(result);
@@ -228,7 +304,7 @@ async function run() {
     });
 
     // delete
-    app.delete("/meals/:id", async (req, res) => {
+    app.delete("/meals/:id", verifyToken, verifyAdmin, async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
       const result = await mealCollection.deleteOne(query);
@@ -254,12 +330,11 @@ async function run() {
       const result = await mealCollection.countDocuments({
         "distributor.email": email,
       });
-      console.log(result);
       res.send({ count: result });
     });
 
     // like button api
-    app.put("/likes/:id", async (req, res) => {
+    app.put("/likes/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const result = await mealCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -287,7 +362,6 @@ async function run() {
     // filter
     app.post("/filter-meals", async (req, res) => {
       const { category, minPrice, maxPrice } = req.body;
-      console.log(req.body);
 
       const filter = {};
 
@@ -326,7 +400,7 @@ async function run() {
     //! reviews api
 
     // create
-    app.post("/reviews", async (req, res) => {
+    app.post("/reviews", verifyToken, async (req, res) => {
       const newReview = req.body;
       const mealId = req.body.mealId;
       const reviewInsert = await reviewCollection.insertOne(newReview);
@@ -339,9 +413,41 @@ async function run() {
     });
 
     // get all reviews
-    app.get("/reviews", async (req, res) => {
+    app.get("/reviews", verifyToken, verifyAdmin, async (req, res) => {
       const result = await reviewCollection.find().toArray();
       res.send(result);
+    });
+
+    app.get("/reviews/paginate", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const skip = (page - 1) * limit;
+
+        const reviews = await reviewCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const totalReviews = await reviewCollection.countDocuments();
+
+        const hasMore = skip + reviews.length < totalReviews;
+
+        res.send({
+          reviews,
+          totalReviews,
+          currentPage: page,
+          totalPages: Math.ceil(totalReviews / limit),
+          hasMore,
+        });
+      } catch (error) {
+        console.error("Error while fetching reviews:", error.message);
+        res
+          .status(500)
+          .send({ message: "An error occurred while fetching reviews." });
+      }
     });
 
     // get reviews for one meal
@@ -353,7 +459,7 @@ async function run() {
     });
 
     // get reviews of one user
-    app.get("/student_reviews/:email", async (req, res) => {
+    app.get("/student_reviews/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
       const result = await reviewCollection
         .find({ "reviewer.email": email })
@@ -361,7 +467,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/search-review", async (req, res) => {
+    app.post("/search-review", verifyToken, async (req, res) => {
       const { searchValue } = req.body;
       const results = await reviewCollection
         .find({
@@ -377,28 +483,18 @@ async function run() {
 
     //! requestedMeals api
 
-    app.post("/requestedMeals", async (req, res) => {
+    app.post("/requestedMeals", verifyToken, async (req, res) => {
       const newRequest = req.body;
       const result = await requestedMealsCollection.insertOne(newRequest);
       res.send(result);
     });
 
-    app.get("/requestedMeals", async (req, res) => {
-      const { userEmail, mealId } = req.query;
-      if (userEmail) {
-        const query = {
-          "requester.email": userEmail,
-          "requestedMeal.id": mealId,
-        };
-        const result = await requestedMealsCollection.findOne(query);
-        res.send(result);
-      } else {
-        const result = await requestedMealsCollection.find().toArray();
-        res.send(result);
-      }
+    app.get("/requestedMeals", verifyToken, async (req, res) => {
+      const result = await requestedMealsCollection.find().toArray();
+      res.send(result);
     });
 
-    app.delete("/requestedMeals/:id", async (req, res) => {
+    app.delete("/requestedMeals/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const result = await requestedMealsCollection.deleteOne({
         _id: new ObjectId(id),
@@ -406,17 +502,33 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/requestedMeals/:id", async (req, res) => {
-      const { id } = req.params;
-      const result = await requestedMealsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status: "Delivered" } }
-      );
+    app.patch(
+      "/requestedMeals/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { id } = req.params;
+        const result = await requestedMealsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "Delivered" } }
+        );
+        res.send(result);
+      }
+    );
+
+    // check if requested
+    app.get("/requestedMeals/check", async (req, res) => {
+      const { userEmail, mealId } = req.query;
+      const query = {
+        "requester.email": userEmail,
+        "requestedMeal.id": mealId,
+      };
+      const result = await requestedMealsCollection.findOne(query);
       res.send(result);
     });
 
     // get meals requested by a user
-    app.get("/requestedMeals/:email", async (req, res) => {
+    app.get("/requestedMeals/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
       const result = await requestedMealsCollection
         .find({ "requester.email": email })
@@ -439,7 +551,7 @@ async function run() {
     });
 
     // post a payment
-    app.post("/payments", async (req, res) => {
+    app.post("/payments", verifyToken, async (req, res) => {
       const payment = req.body;
       const { membership, userEmail } = payment;
       const result = await paymentCollection.insertOne(payment);
@@ -452,7 +564,7 @@ async function run() {
     });
 
     // get payment history for one user
-    app.get("/payments/:email", async (req, res) => {
+    app.get("/payments/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
       const payments = await paymentCollection
         .find({ userEmail: email })
