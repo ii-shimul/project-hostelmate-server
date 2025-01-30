@@ -11,7 +11,7 @@ const port = process.env.PORT || 5000;
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",
+      "http://localhost:5174",
       "https://hostelmate-b7e8e.web.app",
       "https://hostelmate-b7e8e.firebaseapp.com",
     ],
@@ -685,7 +685,9 @@ async function run() {
           .skip(skip)
           .limit(limit)
           .toArray();
-        const totalPayments = await paymentCollection.countDocuments();
+        const totalPayments = await paymentCollection.countDocuments({
+          userEmail: email,
+        });
         res.status(200).send({
           payments,
           totalPayments,
