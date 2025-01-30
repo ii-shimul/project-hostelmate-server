@@ -148,7 +148,7 @@ async function run() {
       }
     });
 
-    app.patch("/upcoming-meals/publish/:id", verifyToken, async (req, res) => {
+    app.patch("/upcoming-meals/publish/:id", async (req, res) => {
       const { id } = req.params;
       const meal = await upcomingMealCollection.findOne({
         _id: new ObjectId(id),
@@ -167,9 +167,14 @@ async function run() {
     // like button api
     app.patch("/upcoming-likes/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
+      const { email } = req.query;
       const result = await upcomingMealCollection.updateOne(
         { _id: new ObjectId(id) },
-        { $inc: { likes: 1 } }
+        {
+          $inc: { likes: 1 },
+          $addToSet: { likedUsers: email },
+        },
+        { upsert: true }
       );
       res.send(result);
     });
@@ -521,6 +526,28 @@ async function run() {
       res.send(results);
     });
 
+    app.delete("/reviews/:id", verifyToken, async (req, res) => {
+      const { id } = req.params;
+      const { mealId } = req.query;
+      const result = await reviewCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      const decrease = await mealCollection.updateOne(
+        { _id: new ObjectId(mealId) },
+        { $inc: { reviews_count: -1 } }
+      );
+      res.send({ result, decrease });
+    });
+
+    app.patch("/reviews", verifyToken, async (req, res) => {
+      const { id, review } = req.body;
+      const result = await reviewCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { review: review } }
+      );
+      res.send(result);
+    });
+
     //! requestedMeals api
 
     app.post("/requestedMeals", verifyToken, async (req, res) => {
@@ -533,6 +560,7 @@ async function run() {
       const result = await requestedMealsCollection.find().toArray();
       res.send(result);
     });
+
     app.get("/requestedMeals/paginate", verifyToken, async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
@@ -671,7 +699,6 @@ async function run() {
           .send({ message: "An error occurred while fetching meals." });
       }
     });
-
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
